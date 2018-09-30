@@ -1,10 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "mpi.h"
 
 // MAX char table (ASCII)
 #define MAX 256
-
 
 //Copies a slice from the original string "og_string"
 //to the return variable "chunk",
@@ -29,7 +29,6 @@ char * chunk_string(char * og_string, int begin, int end){
 	
 	return chunk;
 }
-
 // Boyers-Moore-Hospool-Sunday algorithm for string matching
 int bmhs(char *string, int n, char *substr, int m) {
 
@@ -94,7 +93,7 @@ void closefiles() {
 	fclose(fout);
 }
 
-inline void remove_eol(char *line) {
+void remove_eol(char *line) {
 	int i = strlen(line) - 1;
 	while (line[i] == '\n' || line[i] == '\r') {
 		line[i] = 0;
@@ -102,11 +101,11 @@ inline void remove_eol(char *line) {
 	}
 }
 
-
 char *bases;
 char *str;
+char *chunk;
 
-int main(void) {
+int main(int argc, char **argv) {
 
 	bases = (char*) malloc(sizeof(char) * 1000001);
 	if (bases == NULL) {
@@ -119,64 +118,164 @@ int main(void) {
 		exit(EXIT_FAILURE);
 	}
 
-	openfiles();
+	//INICIALIZAÇÃO(note que algumas dessas variaveis talvez nao sejam usadas em todos os processos(filhos talvez nao usem algumas...) )
+	int myRank; // o ranking do processo atual 
+	int source; // a fonte da mensagems recebida
+	int tag = 50; // uma tag para um "broadcast particular"
+	int tarefas = 4; // TESTE
+	int origem;
+	MPI_Status status; // status
+	MPI_Init(&argc, &argv); // inicialização
+	MPI_Comm_rank(MPI_COMM_WORLD, &myRank); // criação do ranking
 
 	char desc_dna[100], desc_query[100];
 	char line[100];
-	int i, found, result;
+	int i, found, result,total,tamanhosub;
 
-	fgets(desc_query, 100, fquery);
-	remove_eol(desc_query);
-	while (!feof(fquery)) {
-		fprintf(fout, "%s\n", desc_query);
-		// read query string
-		fgets(line, 100, fquery);
-		remove_eol(line);
-		str[0] = 0;
-		i = 0;
-		do {
+	// é o processo mestre, deve ler os arquivos e repassar strings para os filhos	
+	if(myRank == 0)
+	{
+		openfiles();
+		fgets(desc_query, 100, fquery); // le uma linha de fquery de até 100-1 characteres(DESCRIÇÃO DA QUERY)		
+		remove_eol(desc_query);	
+		//loop das query's (até o fim do arquivo)
+		while (!feof(fquery)) 
+		{
+			//escrevendo a descrição da query
+			fprintf(fout, "%s\n", desc_query);
+			// read query string
+			fgets(line, 100, fquery);
+			remove_eol(line);
+			//printf("antes do loop: %s \n",line);
+			str[0] = 0;
+			i = 0;
+
+			do {
+			//printf("antes de concatenar a sring procurada: %s \n",str);			
 			strcat(str + i, line);
+			//printf("depois: %s \n",str);
 			if (fgets(line, 100, fquery) == NULL)
 				break;
 			remove_eol(line);
+			//printf("depois remove_eol (next query): %s \n",line);
 			i += 80;
-		} while (line[0] != '>');
-		strcpy(desc_query, line);
-
-		// read database and search
-		found = 0;
-		fseek(fdatabase, 0, SEEK_SET);
-		fgets(line, 100, fdatabase);
-		remove_eol(line);
-		while (!feof(fdatabase)) {
-			strcpy(desc_dna, line);
-			bases[0] = 0;
-			i = 0;
-			fgets(line, 100, fdatabase);
-			remove_eol(line);
-			do {
-				strcat(bases + i, line);
-				if (fgets(line, 100, fdatabase) == NULL)
-					break;
-				remove_eol(line);
-				i += 80;
-			} while (line[0] != '>');
-
-			result = bmhs(bases, strlen(bases), str, strlen(str));
-			if (result > 0) {
-				fprintf(fout, "%s\n%d\n", desc_dna, result);
-				found++;
+			} while (line[0] != '>'); 
+			
+			//deve enviar str(a query) para todos os outros processos(por razoes de testes por enquanto to considerando 4 procesos)
+			for(i=1; i < tarefas; i++)
+			{
+				MPI_Send(str, strlen(str), MPI_CHAR, i, tag, MPI_COMM_WORLD);
 			}
-		}
 
-		if (!found)
-			fprintf(fout, "NOT FOUND\n");
+			strcpy(desc_query, line); // prepara a proxima query salvando na variavel de descrição
+			
+			// read database and search
+			found = 0;
+			fseek(fdatabase, 0, SEEK_SET); // ajusta para o começo do arquivo
+			fgets(line, 100, fdatabase); // pega a 1a linha (descrição do genoma)
+			remove_eol(line);
+			//printf("READ DATA... \n");
+			//printf("1ª linha(descricao  do genoma): %s \n",line);
+			
+			//loop do genoma
+			while (!feof(fdatabase)) {
+				//gravando a descrição do genoma
+				strcpy(desc_dna, line);
+				bases[0] = 0;
+				i = 0;
+			
+				fgets(line, 100, fdatabase);
+				remove_eol(line);
+				//printf("genoma lido antes(tem limite de 100 caracteres, por isso tem a concatencao): %s \n",line);
+				do {				
+					strcat(bases + i, line); // evita ter que saber o tamanho da cadeia...
+				//	printf("genoma depois(concatenado): %s \n",bases);
+					if (fgets(line, 100, fdatabase) == NULL)
+						break;
+					remove_eol(line); // remove barra n's 
+				//	printf("genoma next: %s	 \n",line);
+					i += 80;
+				} while (line[0] != '>'); // concatena similarmente ao outro loop
+				
+				tamanhosub = strlen(bases)/strlen(str); // calculo simples do tamanho do chunk (temporario)
+				printf("processo %d , genoma: %s \n",myRank,bases);
+				int inicio = 0;
+				// envia para cada processo um pedaço do genoma
+				for(i=1; i < tarefas; i++)
+				{
+									
+					chunk = chunk_string(bases,inicio,(tamanhosub*i)-1);	
+					MPI_Send(chunk, strlen(chunk), MPI_CHAR, i, tag, MPI_COMM_WORLD);
+					inicio = (tamanhosub*i);	
+					// PROBLEMA: enviar o tamanho do chunk que é variavel			
+				}
+				for(i=1; i < tarefas; i++)
+				{
+					MPI_Recv(&result,1,MPI_INT,i,tag,MPI_COMM_WORLD,&status);
+					if(result > 0)
+					{
+						found++;						
+						fprintf(fout, "%s\n%d\n", desc_dna, result);
+						break;	
+					}
+			
+				}
+
+				 
+				
+				//MPI_Reduce(&found,&found,1,MPI_INT,MPI_SUM,0,MPI_COMM_WORLD);
+				//fprintf(fout, "%s\n%d\n", desc_dna, result);
+
+			}
+			if (!found)
+			fprintf(fout, "NOT FOUND\n");			
+					
+					
+
+
+
+
+
+		}
+		str = "";
+		for(i=1; i < tarefas; i++)
+		{
+			MPI_Send(str, strlen(str), MPI_CHAR, i, tag, MPI_COMM_WORLD);			
+		}
+		closefiles();
+		free(str);
+		free(bases);
+			
 	}
 
-	closefiles();
-
-	free(str);
-	free(bases);
-
+	else
+	{
+		printf("oi eu sou o %d um processo filho!\n",myRank);		
+		MPI_Recv(str,1000001,MPI_CHAR,MPI_ANY_SOURCE,tag,MPI_COMM_WORLD,&status);
+		printf("processo %d: recebi a query: %s \n",myRank,str); 
+		int t = strlen(str);		
+		while(t > 0)
+		{
+			
+			printf("processo %d: recebi a query: %s \n",myRank,str); 
+			MPI_Recv(bases,1000001,MPI_CHAR,MPI_ANY_SOURCE,tag,MPI_COMM_WORLD,&status);
+			printf("processo %d: recebi o chunk: %s \n",myRank,bases);
+	
+			result = bmhs(bases, strlen(bases), str, strlen(str));
+//			if(result > 0)
+//			{
+//			   found++;
+//			}
+			printf("processo %d: encontrei uma ocorrencia em: %d \n",myRank,result);
+			MPI_Send(&result,1,MPI_INT,0,tag,MPI_COMM_WORLD);
+			//acumular dos processos para o  processos  pai! 
+			
+			//MPI_Reduce(&found,&total,1,MPI_INT,MPI_SUM,0,MPI_COMM_WORLD);
+			MPI_Recv(str,1000001,MPI_CHAR,MPI_ANY_SOURCE,tag,MPI_COMM_WORLD,&status);
+		}		
+		
+	}
+	MPI_Finalize();
 	return EXIT_SUCCESS;
+
 }
