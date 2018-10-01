@@ -16,9 +16,8 @@ char * chunk_string(char * og_string, int begin, int end){
 	if(begin < 0 || end < 0) return NULL; //Negative indexes
 	if(begin > end) return NULL; //Maybe invert "end" and "begin"?
 
-    int size = (end - begin); //Result string's  size
+    int size = (end - begin) + 1; //Result string's  size
 	char * chunk = (char*) malloc(sizeof(char) * (size)); //Result string
-    
 	//Copy slice
     int i = 0;
     while (begin<=end){
@@ -26,7 +25,6 @@ char * chunk_string(char * og_string, int begin, int end){
         i++;
         begin++;
 	}
-	
 	return chunk;
 }
 
@@ -170,7 +168,7 @@ int main(int argc, char **argv) {
 
 	char desc_dna[100], desc_query[100];
 	char line[100];
-	int i, found, result, total, tamanhosub, contq, contc;
+	int i, found, result, total, tamanhosub, inicio, contq, contc;
 
 	// é o processo mestre, deve ler os arquivos e repassar strings para os filhos	
 	if(myRank == 0)
@@ -238,23 +236,26 @@ int main(int argc, char **argv) {
 					i += 80;
 				} while (line[0] != '>'); // concatena similarmente ao outro loop
 				
-				tamanhosub = strlen(bases)/strlen(str); // calculo simples do tamanho do chunk (temporario)
-				int difrest = strlen(bases)-tamanhosub*tarefas;
-				int divresto = difrest/tarefas;
+
+
+				tamanhosub = strlen(bases)/(tarefas - 1); // calculo simples do tamanho do chunk (temporario)
+				// int difrest = strlen(bases)-tamanhosub*tarefas;
+				// int divresto = difrest/tarefas;
 				printf("**********************************************************\n");
 				printf("genoma da vez: %s \n",bases);
 				printf("tamanho(debug): %d \n",strlen(bases));
 				printf("tamanho de cada chunk a ser enviado(debug): %d \n",tamanhosub);
-				printf("diferença(debug): %d \n",difrest);
-				printf("divresto(debug): %d \n",divresto);
+				//printf("diferença(debug): %d \n",difrest);
+				//printf("divresto(debug): %d \n",divresto);
 				printf("**********************************************************\n");
-				int inicio = 0;
+				inicio = 0;
 				// envia para cada processo um pedaço do genoma
 				for(i=1; i < tarefas; i++)
 				{
-									
-					chunk = chunk_string(bases,inicio,(tamanhosub*i)-1);	
-					MPI_Send(chunk, strlen(chunk), MPI_CHAR, i, tag, MPI_COMM_WORLD);
+					//printf("Tamanho do chunk, inicio, i = %d %d %d\n", tamanhosub, inicio, tamanhosub*i);
+					chunk = chunk_string(bases,inicio,(tamanhosub*i)-1);
+					//printf("Chunk is %s size %ld\n", chunk, strlen(chunk));
+					MPI_Send(chunk, tamanhosub, MPI_CHAR, i, tag, MPI_COMM_WORLD);
 					inicio = (tamanhosub*i);	
 					// PROBLEMA: enviar o tamanho do chunk que é variavel			
 				}
@@ -270,7 +271,7 @@ int main(int argc, char **argv) {
 					}
 			
 				}
-			
+
 			}
 			if (!found)
 				fprintf(fout, "NOT FOUND\n");
@@ -306,7 +307,7 @@ int main(int argc, char **argv) {
 				result = bmhs(bases, strlen(bases), str, strlen(str));
 				if(result != -1)
 				{
-				  printf("processo %d: encontrei uma ocorrencia em: %d \n",myRank,result);
+				  printf("processo %d: encontrei uma ocorrencia em: %d \n",myRank,inicio + result);
 				}
 				else
 				{
