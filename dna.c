@@ -307,7 +307,7 @@ int main(int argc, char **argv) {
 				result = bmhs(bases, strlen(bases), str, strlen(str));
 				if(result != -1)
 				{
-				  printf("processo %d: encontrei uma ocorrencia em: %d \n",myRank,inicio + result);
+				  printf("processo %d: encontrei uma ocorrencia em: %d \n",myRank, result);
 				}
 				else
 				{
