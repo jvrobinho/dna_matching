@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "mpi.h"
+#include <limits.h>
 
 // MAX char table (ASCII)
 #define MAX 256
@@ -63,7 +64,6 @@ void enviachunk(char* c, int tarefas)
 		inicio = (tamanhosub*i);	
 		// PROBLEMA: enviar o tamanho do chunk que é variavel			
 				}
-
 }
 */
 
@@ -239,35 +239,73 @@ int main(int argc, char **argv) {
 
 
 				tamanhosub = strlen(bases)/(tarefas - 1); // calculo simples do tamanho do chunk (temporario)
-				// int difrest = strlen(bases)-tamanhosub*tarefas;
-				// int divresto = difrest/tarefas;
+				int difrest = strlen(bases)-tamanhosub;
+				int divresto = difrest/tarefas;
+				int offset = divresto/(tarefas-1);
 				printf("**********************************************************\n");
 				printf("genoma da vez: %s \n",bases);
 				printf("tamanho(debug): %d \n",strlen(bases));
 				printf("tamanho de cada chunk a ser enviado(debug): %d \n",tamanhosub);
-				//printf("diferença(debug): %d \n",difrest);
-				//printf("divresto(debug): %d \n",divresto);
+				printf("diferença(debug): %d \n",difrest);
+				printf("divresto(debug): %d \n",divresto);
+				printf("offset(debug): %d \n",offset);
 				printf("**********************************************************\n");
+				
 				inicio = 0;
+				int fim = 0;
 				// envia para cada processo um pedaço do genoma
 				for(i=1; i < tarefas; i++)
 				{
-					//printf("Tamanho do chunk, inicio, i = %d %d %d\n", tamanhosub, inicio, tamanhosub*i);
-					chunk = chunk_string(bases,inicio,(tamanhosub*i)-1);
-					//printf("Chunk is %s size %ld\n", chunk, strlen(chunk));
-					MPI_Send(chunk, tamanhosub, MPI_CHAR, i, tag, MPI_COMM_WORLD);
-					inicio = (tamanhosub*i);	
-					// PROBLEMA: enviar o tamanho do chunk que é variavel			
+					
+					if(offset > 0)
+					{
+						fim = ((tamanhosub*i)-1)+offset*i;
+						if(fim > strlen(bases))
+						{
+							fim = strlen(bases);
+						}			
+						printf("##############inicio antes: %d#############\n", inicio);
+						chunk = chunk_string(bases,inicio,fim);
+						printf("##############Chunk is  size %ld#############\n", strlen(chunk));
+						printf("##############fim: %d#############\n", fim );
+						MPI_Send(chunk, fim, MPI_CHAR, i, tag, MPI_COMM_WORLD);
+						inicio = fim+1;	
+						printf("##############inicio depois: %d#############\n", inicio);
+						// PROBLEMA: enviar o tamanho do chunk que é variavel
+					}
+					else
+					{
+						chunk = chunk_string(bases,inicio,(tamanhosub*i)-1);
+						//printf("Chunk is %s size %ld\n", chunk, strlen(chunk));
+						MPI_Send(chunk, tamanhosub, MPI_CHAR, i, tag, MPI_COMM_WORLD);
+						inicio = (tamanhosub*i);	
+						// PROBLEMA: enviar o tamanho do chunk que é variavel
+					}
+						
+								
 				}
 				// recebe a resposta de cada um deles
+				int menorResult = -1;
 				for(i=1; i < tarefas; i++)
 				{
 					MPI_Recv(&result,1,MPI_INT,i,tag,MPI_COMM_WORLD,&status);
+								
 					if(result > 0)
 					{
-						found++;						
-						fprintf(fout, "%s\n%d\n", desc_dna, result);
-						//	break;
+						found++;
+						if(menorResult < result && menorResult == -1) 
+						{							
+							menorResult= result;
+							if(i == 1 )
+							{
+								fprintf(fout, "%s\n%d\n", desc_dna, menorResult);
+							}
+							else
+							{
+								fprintf(fout, "%s\n%d\n", desc_dna, menorResult+((tamanhosub*(i-1)))+offset*(i-1));
+							}						
+						}
+						//break;
 					}
 			
 				}
