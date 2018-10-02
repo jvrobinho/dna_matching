@@ -50,22 +50,6 @@ void enviaquery(char* q,int tarefas,int tag)
 	}
 
 }
-	
-/*
-void enviachunk(char* c, int tarefas)
-{
-	int inicio = 0;
-	
-	// envia para cada processo um pedaço do genoma
-	for(i=1; i < tarefas; i++)
-	{
-		chunk = chunk_string(bases,inicio,(tamanhosub*i)-1);	
-		MPI_Send(chunk, strlen(chunk)+1, MPI_CHAR, i, tag, MPI_COMM_WORLD);
-		inicio = (tamanhosub*i);	
-		// PROBLEMA: enviar o tamanho do chunk que é variavel			
-				}
-}
-*/
 
 // Boyers-Moore-Hospool-Sunday algorithm for string matching
 int bmhs(char *string, int n, char *substr, int m) {
@@ -200,10 +184,6 @@ int main(int argc, char **argv) {
 				i += 80;
 			} while (line[0] != '>');
 
-			printf("**********************************************************\n");
-			printf("Query da vez: %s \n",str);
-			printf("**********************************************************\n");
-
 			//deve enviar str(a query) para todos os outros processos(por razoes de testes por enquanto to considerando 4 procesos)
 			enviaquery(str,tarefas,tag);
 			strcpy(desc_query, line); // prepara a proxima query salvando na variavel de descrição
@@ -235,42 +215,28 @@ int main(int argc, char **argv) {
 					//printf("genoma next: %s	 \n",line);
 					i += 80;
 				} while (line[0] != '>'); // concatena similarmente ao outro loop
-				
-
 
 				tamanhosub = strlen(bases)/(tarefas - 1); // calculo simples do tamanho do chunk (temporario)
 				int difrest = strlen(bases)-tamanhosub;
 				int divresto = difrest/tarefas;
 				int offset = divresto/(tarefas-1);
-				printf("**********************************************************\n");
-				printf("genoma da vez: %s \n",bases);
-				printf("tamanho(debug): %d \n",strlen(bases));
-				printf("tamanho de cada chunk a ser enviado(debug): %d \n",tamanhosub);
-				printf("diferença(debug): %d \n",difrest);
-				printf("divresto(debug): %d \n",divresto);
-				printf("offset(debug): %d \n",offset);
-				printf("**********************************************************\n");
 				
 				inicio = 0;
 				int fim = 0;
 				// envia para cada processo um pedaço do genoma
 				for(i=1; i < tarefas; i++)
 				{
-					
 					if(offset > 0)
 					{
 						fim = ((tamanhosub*i)-1)+offset*i;
 						if(fim > strlen(bases))
 						{
 							fim = strlen(bases);
-						}			
-						printf("##############inicio antes: %d#############\n", inicio);
+						}
 						chunk = chunk_string(bases,inicio,fim);
-						printf("##############Chunk is  size %ld#############\n", strlen(chunk));
-						printf("##############fim: %d#############\n", fim );
-						MPI_Send(chunk, fim, MPI_CHAR, i, tag, MPI_COMM_WORLD);
-						inicio = fim+1;	
-						printf("##############inicio depois: %d#############\n", inicio);
+						MPI_Send(chunk, fim - inicio, MPI_CHAR, i, tag, MPI_COMM_WORLD);
+						free(chunk);
+						inicio = fim+1;
 						// PROBLEMA: enviar o tamanho do chunk que é variavel
 					}
 					else
@@ -278,18 +244,17 @@ int main(int argc, char **argv) {
 						chunk = chunk_string(bases,inicio,(tamanhosub*i)-1);
 						//printf("Chunk is %s size %ld\n", chunk, strlen(chunk));
 						MPI_Send(chunk, tamanhosub, MPI_CHAR, i, tag, MPI_COMM_WORLD);
+						free(chunk);
 						inicio = (tamanhosub*i);	
 						// PROBLEMA: enviar o tamanho do chunk que é variavel
 					}
-						
-								
 				}
 				// recebe a resposta de cada um deles
 				int menorResult = -1;
 				for(i=1; i < tarefas; i++)
 				{
 					MPI_Recv(&result,1,MPI_INT,i,tag,MPI_COMM_WORLD,&status);
-								
+
 					if(result > 0)
 					{
 						found++;
@@ -305,11 +270,8 @@ int main(int argc, char **argv) {
 								fprintf(fout, "%s\n%d\n", desc_dna, menorResult+((tamanhosub*(i-1)))+offset*(i-1));
 							}						
 						}
-						//break;
 					}
-			
 				}
-
 			}
 			if (!found)
 				fprintf(fout, "NOT FOUND\n");
@@ -330,37 +292,24 @@ int main(int argc, char **argv) {
 
 	else
 	{
-		printf("oi eu sou o %d um processo filho!\n",myRank);		
 		MPI_Recv(&contq,1,MPI_INT,0,tag,MPI_COMM_WORLD,&status);
-		 
+
+
 		while(contq)
 		{
-			MPI_Recv(str,1000001,MPI_CHAR,MPI_ANY_SOURCE,tag,MPI_COMM_WORLD,&status);			
-			printf("processo %d: recebi a query: %s \n",myRank,str);	
-			MPI_Recv(&contc,1,MPI_INT,0,tag,MPI_COMM_WORLD,&status);					
+			MPI_Recv(str,1000001,MPI_CHAR,MPI_ANY_SOURCE,tag,MPI_COMM_WORLD,&status);
+			MPI_Recv(&contc,1,MPI_INT,0,tag,MPI_COMM_WORLD,&status);
 			while(contc)
 			{
 				MPI_Recv(bases,1000001,MPI_CHAR,MPI_ANY_SOURCE,tag,MPI_COMM_WORLD,&status);
-				printf("processo %d: recebi o chunk: %s \n",myRank,bases);
 				result = bmhs(bases, strlen(bases), str, strlen(str));
-				if(result != -1)
-				{
-				  printf("processo %d: encontrei uma ocorrencia em: %d \n",myRank, result);
-				}
-				else
-				{
-				  printf("processo %d: nao encontrei ocorrencia   \n",myRank);
-				}
-				
+
+                printf("processo %d: enviei uma ocorrencia em: %d \n",myRank, result);
 				MPI_Send(&result,1,MPI_INT,0,tag,MPI_COMM_WORLD);
-				//printf("...\n");				
-				MPI_Recv(&contc,1,MPI_INT,0,tag,MPI_COMM_WORLD,&status);	
-							
+				MPI_Recv(&contc,1,MPI_INT,0,tag,MPI_COMM_WORLD,&status);
 			}
 			MPI_Recv(&contq,1,MPI_INT,0,tag,MPI_COMM_WORLD,&status);
-			
-		}		
-		
+		}
 	}
 	MPI_Finalize();
 	return EXIT_SUCCESS;
