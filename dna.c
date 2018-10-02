@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "mpi.h"
+#include <limits.h>
 
 // MAX char table (ASCII)
 #define MAX 256
@@ -16,9 +17,8 @@ char * chunk_string(char * og_string, int begin, int end){
 	if(begin < 0 || end < 0) return NULL; //Negative indexes
 	if(begin > end) return NULL; //Maybe invert "end" and "begin"?
 
-    int size = (end - begin); //Result string's  size
+    int size = (end - begin) + 1; //Result string's  size
 	char * chunk = (char*) malloc(sizeof(char) * (size)); //Result string
-    
 	//Copy slice
     int i = 0;
     while (begin<=end){
@@ -26,7 +26,6 @@ char * chunk_string(char * og_string, int begin, int end){
         i++;
         begin++;
 	}
-	
 	return chunk;
 }
 
@@ -65,7 +64,6 @@ void enviachunk(char* c, int tarefas)
 		inicio = (tamanhosub*i);	
 		// PROBLEMA: enviar o tamanho do chunk que é variavel			
 				}
-
 }
 */
 
@@ -170,46 +168,46 @@ int main(int argc, char **argv) {
 
 	char desc_dna[100], desc_query[100];
 	char line[100];
-	int i, found, result,total,tamanhosub,contq,contc;
+	int i, found, result, total, tamanhosub, inicio, contq, contc;
 
 	// é o processo mestre, deve ler os arquivos e repassar strings para os filhos	
 	if(myRank == 0)
 	{
 		openfiles();
 		fgets(desc_query, 100, fquery); // le uma linha de fquery de até 100-1 characteres(DESCRIÇÃO DA QUERY)		
-		remove_eol(desc_query);	
-		//loop das query's (até o fim do arquivo)
+		remove_eol(desc_query);
 
+		//loop das query's (até o fim do arquivo)
 		while (!feof(fquery)) 
 		{
 			contq = 1;
-			enviacontrole(contq, tarefas,tag);			
-			//escrevendo a descrição da query
-			fprintf(fout, "%s\n", desc_query);
-			// read query string
-			fgets(line, 100, fquery);
+			enviacontrole(contq, tarefas, tag);
+			fprintf(fout, "%s\n", desc_query); //escrevendo a descrição da query
+			fgets(line, 100, fquery); // read query string
 			remove_eol(line);
 			//printf("antes do loop: %s \n",line);
 			str[0] = 0;
 			i = 0;
 
 			do {
-			//printf("antes de concatenar a sring procurada: %s \n",str);			
-			strcat(str + i, line);
-			//printf("depois: %s \n",str);
-			if (fgets(line, 100, fquery) == NULL)
-				break;
-			remove_eol(line);
-			//printf("depois remove_eol (next query): %s \n",line);
-			i += 80;
-			} while (line[0] != '>'); 
+				//printf("antes de concatenar a sring procurada: %s \n",str);
+				strcat(str + i, line);
+				//printf("depois: %s \n",str);
+				if (fgets(line, 100, fquery) == NULL)
+					break;
+				remove_eol(line);
+				//printf("depois remove_eol (next query): %s \n",line);
+				i += 80;
+			} while (line[0] != '>');
+
 			printf("**********************************************************\n");
 			printf("Query da vez: %s \n",str);
 			printf("**********************************************************\n");
+
 			//deve enviar str(a query) para todos os outros processos(por razoes de testes por enquanto to considerando 4 procesos)
 			enviaquery(str,tarefas,tag);
 			strcpy(desc_query, line); // prepara a proxima query salvando na variavel de descrição
-			
+
 			// read database and search
 			found = 0;
 			fseek(fdatabase, 0, SEEK_SET); // ajusta para o começo do arquivo
@@ -229,17 +227,21 @@ int main(int argc, char **argv) {
 				//printf("genoma lido antes(tem limite de 100 caracteres, por isso tem a concatencao): %s \n",line);
 				do {				
 					strcat(bases + i, line); // evita ter que saber o tamanho da cadeia...
-				//	printf("genoma depois(concatenado): %s \n",bases);
-					if (fgets(line, 100, fdatabase) == NULL)
-						break;
+					//printf("genoma depois(concatenado): %s \n",bases);
+
+					if (fgets(line, 100, fdatabase) == NULL) break;
+
 					remove_eol(line); // remove barra n's 
-				//	printf("genoma next: %s	 \n",line);
+					//printf("genoma next: %s	 \n",line);
 					i += 80;
 				} while (line[0] != '>'); // concatena similarmente ao outro loop
 				
-				tamanhosub = strlen(bases)/strlen(str); // calculo simples do tamanho do chunk (temporario)
-				int difrest = strlen(bases)-tamanhosub*tarefas;
+
+
+				tamanhosub = strlen(bases)/(tarefas - 1); // calculo simples do tamanho do chunk (temporario)
+				int difrest = strlen(bases)-tamanhosub;
 				int divresto = difrest/tarefas;
+				int offset;
 				printf("**********************************************************\n");
 				printf("genoma da vez: %s \n",bases);
 				printf("tamanho(debug): %d \n",strlen(bases));
@@ -247,50 +249,60 @@ int main(int argc, char **argv) {
 				printf("diferença(debug): %d \n",difrest);
 				printf("divresto(debug): %d \n",divresto);
 				printf("**********************************************************\n");
-				int inicio = 0;
+				inicio = 0;
+					
 				// envia para cada processo um pedaço do genoma
 				for(i=1; i < tarefas; i++)
 				{
-									
-					chunk = chunk_string(bases,inicio,(tamanhosub*i)-1);	
-					MPI_Send(chunk, strlen(chunk), MPI_CHAR, i, tag, MPI_COMM_WORLD);
+					
+					//if(divresto > 0)
+						
+					chunk = chunk_string(bases,inicio,(tamanhosub*i)-1);
+					//printf("Chunk is %s size %ld\n", chunk, strlen(chunk));
+					MPI_Send(chunk, tamanhosub, MPI_CHAR, i, tag, MPI_COMM_WORLD);
 					inicio = (tamanhosub*i);	
 					// PROBLEMA: enviar o tamanho do chunk que é variavel			
 				}
 				// recebe a resposta de cada um deles
+				int menorResult = -1;
 				for(i=1; i < tarefas; i++)
 				{
 					MPI_Recv(&result,1,MPI_INT,i,tag,MPI_COMM_WORLD,&status);
-					if(result > 0)
+					if(			
+					if(result > 0 &&)
 					{
-						found++;						
-						fprintf(fout, "%s\n%d\n", desc_dna, result);
-					//	break;	
+						found++;
+						menorResult = result;
+						if(i == 1 )
+						{
+							fprintf(fout, "%s\n%d\n", desc_dna, result);
+						}
+						else
+						{
+							fprintf(fout, "%s\n%d\n", desc_dna, result+tamanhosub*(i-1));
+						}						
+						
+						//break;
 					}
 			
 				}
-			
-				 
-				
-			
+
 			}
 			if (!found)
-			fprintf(fout, "NOT FOUND\n");
+				fprintf(fout, "NOT FOUND\n");
+
 			// terminou os genomas
 			contc = 0;
 			enviacontrole(contc, tarefas,tag);
 
-				
 		}
 		//terminou o arquivo
 		contq = 0;
 		enviacontrole(contq, tarefas,tag);
 
-		
 		closefiles();
 		free(str);
 		free(bases);
-			
 	}
 
 	else
@@ -310,7 +322,7 @@ int main(int argc, char **argv) {
 				result = bmhs(bases, strlen(bases), str, strlen(str));
 				if(result != -1)
 				{
-				  printf("processo %d: encontrei uma ocorrencia em: %d \n",myRank,result);
+				  printf("processo %d: encontrei uma ocorrencia em: %d \n",myRank, result);
 				}
 				else
 				{
@@ -324,12 +336,9 @@ int main(int argc, char **argv) {
 			}
 			MPI_Recv(&contq,1,MPI_INT,0,tag,MPI_COMM_WORLD,&status);
 			
-			
-			
 		}		
 		
 	}
 	MPI_Finalize();
 	return EXIT_SUCCESS;
-
 }
